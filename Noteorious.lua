@@ -1,8 +1,8 @@
 --[[
     Noteorious - sticky notes for monsters, matched by zone and name.
 
-    Target a monster, type //mn new, write your strategy into the generated
-    entry in data/notes.lua, then //mn reload. From then on the note pops up
+    Target a monster, type //nt new, write your strategy into the generated
+    entry in data/notes.lua, then //nt reload. From then on the note pops up
     whenever you target that monster.
 
     This file wires Windower events and commands to the modules in core/:
@@ -10,7 +10,7 @@
         core/matcher.lua    picks the note for (zone, monster name)
         core/state.lua      decides which note is visible and when it closes
         core/display.lua    draws the note (texts + images)
-        core/generator.lua  adds entries to notes.lua for //mn new
+        core/generator.lua  adds entries to notes.lua for //nt new
         core/identity.lua   zone:name identifiers and note keys
         core/remembered.lua dragged positions and the auto toggle
         core/world.lua      reads game state, parses defeat messages
@@ -18,8 +18,8 @@
 
 _addon.name = 'Noteorious'
 _addon.author = 'John'
-_addon.version = '1.0.0'
-_addon.commands = { 'mn', 'noteorious' }
+_addon.version = '1.1.0'
+_addon.commands = { 'nt', 'noteorious' }
 
 local texts = require('texts')
 local images = require('images')
@@ -46,6 +46,8 @@ local NOTES_NAME = 'data/notes.lua'
 
 local CHAT_INFO, CHAT_ERROR = 207, 123
 local MAX_PROBLEM_LINES = 8
+local WRITE_HINT = 'Make sure Windower can write to the addons/Noteorious/data folder '
+    .. '(a Windower folder under Program Files can block this).'
 
 local game = world.new(windower)
 local lib = library.empty()   -- replaced by the real library on load
@@ -56,6 +58,7 @@ local shown = {}              -- what is on screen: { note, pinned }
 local last_tick = 0
 local reported_errors = {}
 local zoned_in                -- zone id while logged in, nil after logout
+local last_load = { failed = false, problems = 0 } -- for //nt status
 
 local fs = {
     read = util.read_file,
@@ -89,7 +92,7 @@ local function report_problems(report)
         complain(lines[i])
     end
     if #lines > MAX_PROBLEM_LINES then
-        complain(('...and %d more. Fix the ones above and //mn reload to see the rest.'):format(#lines - MAX_PROBLEM_LINES))
+        complain(('...and %d more. Fix the ones above and //nt reload to see the rest.'):format(#lines - MAX_PROBLEM_LINES))
     end
 end
 
@@ -177,25 +180,28 @@ local function load_library(verbose)
         end
         local ok, err = util.write_file(paths.notes, generator.STARTER)
         if ok then
-            say('Created ' .. NOTES_NAME .. ' (there was no note library yet).')
+            say(('Created %s for your notes. Target a monster and type //nt new to add one, '
+                .. 'or //nt demo to see how notes look.'):format(NOTES_NAME))
         else
-            complain(('Could not create %s: %s'):format(NOTES_NAME, tostring(err)))
+            complain(('Could not create %s (%s). %s'):format(NOTES_NAME, tostring(err), WRITE_HINT))
         end
     end
 
     local new_lib, report = library.load(library_files(), { zones = zones })
+    last_load.failed = not new_lib
     if not new_lib then
         report_problems(report)
         if lib.broken then
-            complain('No notes are active until the file is fixed. Then use //mn reload.')
+            complain('No notes are active until the file is fixed. Then use //nt reload.')
         else
-            complain('Keeping the notes that were loaded before. Fix the file, then //mn reload.')
+            complain('Keeping the notes that were loaded before. Fix the file, then //nt reload.')
         end
         return false
     end
 
     lib = new_lib
     local problems = #report.errors + #report.warnings
+    last_load.problems = problems
     if verbose or problems > 0 then
         say(('Loaded %d note%s from %d file%s%s.'):format(
             report.count, report.count == 1 and '' or 's',
@@ -249,15 +255,42 @@ end
 local function save_memory()
     local ok, err = remembered.save(paths.remembered, memory)
     if not ok then
-        complain('Could not save data/remembered.lua: ' .. tostring(err))
+        complain(('Could not save data/remembered.lua (%s), so note positions and the toggle '
+            .. 'will not be remembered. %s'):format(tostring(err), WRITE_HINT))
     end
+end
+
+-- //nt demo: a built-in manual note drawn with your current defaults. It is
+-- never written to a file. It uses the shared note position, so dragging it
+-- sets where notes appear.
+local DEMO_KEY = '(demo)'
+local DEMO = {
+    mode = 'manual',
+    title = 'Noteorious demo',
+    text = [[
+        This is how your notes look.
+        - Drag this box to choose where notes appear.
+        - Fonts, colors and sizes are in the defaults section of data/notes.lua. Save it, then //nt reload.
+        - //nt hide closes this note.
+    ]],
+}
+
+local function demo_note()
+    local note = library.build_note(DEMO_KEY, DEMO, lib, { name = 'demo' }, zones, function() end)
+    note.demo = true
+    return note
 end
 
 -- Reload notes and keep whatever is visible in sync with the new definitions.
 local function reload(verbose)
     local ok = load_library(verbose)
     if ok then
-        st:reload(function(key) return lib.notes[key] end)
+        st:reload(function(key)
+            if key == DEMO_KEY then
+                return demo_note() -- redrawn with the reloaded defaults
+            end
+            return lib.notes[key]
+        end)
         refresh(true)
     end
     return ok
@@ -291,10 +324,10 @@ local function resolve_spec(args)
         local zone = identity.zone_of_entity(id)
         if zone then
             complain(('Entity %d belongs to %s but is not loaded right now, so its name is unknown. '
-                .. 'Raw ids only work while the monster is nearby. Target it and use //mn id, or type %d:<monster name>.')
+                .. 'Raw ids only work while the monster is nearby. Target it and use //nt id, or type %d:<monster name>.')
                 :format(id, zone_label(zone), zone))
         else
-            complain(('%d is not a loaded monster id. Use //mn id on a target for a lasting zone:name identifier.'):format(id))
+            complain(('%d is not a loaded monster id. Use //nt id on a target for a lasting zone:name identifier.'):format(id))
         end
         return nil
     end
@@ -323,7 +356,7 @@ local function resolve_note(args)
     end
     local note = lib.matcher:find(spec.zone, spec.name)
     if not note then
-        say(('No note matches %s in %s. Create one with //mn new%s'):format(
+        say(('No note matches %s in %s. Create one with //nt new%s'):format(
             spec.name, zone_label(spec.zone), text ~= '' and (' ' .. text) or ''))
     end
     return note, spec
@@ -339,9 +372,16 @@ local function generator_options()
     }
 end
 
+-- A file path the way Windows writes it, for pasting into Explorer or an editor.
+local function native_path(path)
+    return (tostring(path):gsub('/', '\\'))
+end
+
+-- Explains why //nt new (entry_lines given) or //nt append could not change
+-- notes.lua. The file is never changed when this is called.
 local function explain_failure(failure, entry_lines)
     local reason = failure.reason
-    if reason == 'missing_marker' or reason == 'marker_not_on_own_line' or reason == 'verify' then
+    if entry_lines and (reason == 'missing_marker' or reason == 'marker_not_on_own_line' or reason == 'verify') then
         windower.copy_to_clipboard(generator.as_text(entry_lines))
         if reason == 'verify' then
             complain(('Could not add the note safely (%s), so %s was not changed.'):format(failure.message, NOTES_NAME))
@@ -350,17 +390,39 @@ local function explain_failure(failure, entry_lines)
         else
             complain(('%s has no generated-notes marker line, so it was not changed.'):format(NOTES_NAME))
         end
-        say('The new entry is on your clipboard: paste it inside  notes = { ... }  and use //mn reload.')
-        say('For //mn new to save by itself, this line must sit on its own line inside notes = { ... }:')
+        say('The new entry is on your clipboard: paste it inside  notes = { ... }  and use //nt reload.')
+        say('For //nt new to save by itself, this line must sit on its own line inside notes = { ... }:')
         say('    ' .. generator.END_MARKER)
     elseif reason == 'invalid' then
         complain(('%s has an error, so it was not changed: %s'):format(NOTES_NAME, tostring(failure.message)))
-        complain('Fix the file, then //mn reload and try again.')
+        complain('Fix the file, then //nt reload and try again.')
     elseif reason == 'duplicate' then
         complain(("A note named '%s' already exists in %s."):format(tostring(failure.message), NOTES_NAME))
+    elseif reason == 'missing' then
+        complain(('That note is no longer in %s. Use //nt reload.'):format(NOTES_NAME))
+    elseif reason == 'closing' then
+        complain(('The text cannot contain %s. Add it by hand instead (//nt edit shows where).'):format(failure.message))
+    elseif reason == 'no_text' or reason == 'verify' then
+        complain(("Could not add the line safely, so %s was not changed. This works when the note's text is "
+            .. 'written as text = [[ ... ]]. Add it by hand instead (//nt edit shows where).'):format(NOTES_NAME))
     else
-        complain(('Could not save the note (%s: %s). %s was not changed.'):format(reason, tostring(failure.message), NOTES_NAME))
+        complain(('Could not save the change (%s: %s), so %s was not changed. %s'):format(
+            reason, tostring(failure.message), NOTES_NAME, WRITE_HINT))
     end
+end
+
+-- The note a command acts on when none is named: the one on screen, else
+-- the target's note. Complains (with `hint`) and returns nil when there is none.
+local function current_note(hint)
+    local note = st:visible()
+    if note then
+        return note
+    end
+    if not game.target() then
+        complain('No note is showing. ' .. hint)
+        return nil
+    end
+    return resolve_note({})
 end
 
 --[[ Commands ]]
@@ -368,18 +430,27 @@ end
 local commands = {}
 
 local HELP = {
-    'Noteorious commands (//mn or //noteorious):',
-    '  new [zone:name | raw id]  Add a note for your target (or the given monster) to notes.lua',
-    '  edit [key | zone:name]    Show which file and line holds the note',
-    '  id                        Copy the target\'s lasting zone:name identifier',
-    '  rawid                     Copy the target\'s raw entity id (diagnostics only)',
-    '  show [key | zone:name]    Display a note now (works for manual notes too)',
-    '  hide                      Dismiss the visible note',
-    '  pin                       Pin or unpin the visible note',
-    '  toggle [on|off]           Turn automatic notes on or off',
-    '  reload                    Reload notes.lua and data/libraries/*.lua',
-    '  help                      This list',
+    'Noteorious (//nt or //noteorious). Your notes are in data/notes.lua.',
+    '  new [zone:name] - add a note for your target (or for that monster)',
+    '  append <text> - add a line to the note on screen',
+    '  edit [note] - find a note in its file (copies the file path)',
+    '  list [word] - list your notes',
+    '  show [note] - show a note now;  hide - close it',
+    '  pin - keep the note on screen (pin again to release it)',
+    '  next / prev - turn the pages of a long note',
+    '  resetpos [all] - move the note (or every note) back to its spot',
+    '  demo - show a sample note to try the look and position',
+    '  toggle [on|off] - turn automatic notes on or off',
+    '  status - what is loaded and showing',
+    '  reload - reload your note files after editing them',
+    '  id / rawid - copy the target\'s zone:name / raw entity id',
 }
+
+local LIST_LIMIT = 15
+
+local function plural(n, word)
+    return ('%d %s%s'):format(n, word, n == 1 and '' or 's')
+end
 
 function commands.help()
     for _, line in ipairs(HELP) do
@@ -404,7 +475,7 @@ function commands.rawid()
     end
     windower.copy_to_clipboard(tostring(mob.id))
     say(('Copied raw entity id %d (0x%08X, index %d) for %s.'):format(mob.id, mob.id, mob.index or 0, mob.name))
-    say('Raw ids differ per zone and instance; notes use zone + name. Use //mn id for a lasting identifier.')
+    say('Raw ids differ per zone and instance; notes use zone + name. Use //nt id for a lasting identifier.')
 end
 
 function commands.new(args)
@@ -418,7 +489,7 @@ function commands.new(args)
     end
     local existing, tier = lib.matcher:find(spec.zone, spec.name)
     if existing and tier == 1 then
-        say(("%s already has a note: '%s' in %s. Use //mn edit to find it."):format(spec.name, existing.key, locate(existing)))
+        say(("%s already has a note: '%s' in %s. Use //nt edit to find it."):format(spec.name, existing.key, locate(existing)))
         return
     end
 
@@ -434,9 +505,10 @@ function commands.new(args)
     end
 
     reload(false)
-    say(("Created note '%s' for %s (%s) at %s line %s."):format(
+    windower.copy_to_clipboard(native_path(paths.notes))
+    say(("Added note '%s' (%s, %s) at %s line %s. File path copied."):format(
         key, spec.name, zone_label(spec.zone), NOTES_NAME, tostring(result.line or '?')))
-    say('Write your notes in that entry, save the file, then use //mn reload.')
+    say('Write the note there and //nt reload, or add lines with //nt append <text>.')
     if existing then
         say(("It takes priority over the group note '%s' for this monster."):format(existing.key))
     end
@@ -444,22 +516,54 @@ end
 
 function commands.edit(args)
     local note
-    if #args == 0 and not game.target() then
-        note = st:visible()
-        if not note then
-            complain('Target a monster, or name a note: //mn edit <note key>')
-            return
-        end
+    if #args == 0 then
+        note = current_note('Target a monster, or name a note: //nt edit <note key>')
     else
         note = resolve_note(args)
-        if not note then
-            return
-        end
     end
-    windower.copy_to_clipboard(note.source)
-    say(("Note '%s' is in %s."):format(note.key, locate(note)))
-    say(('Mode: %s. Matches: %s.'):format(note.mode, note.rule and note.rule.desc or 'nothing (show it with //mn show ' .. note.key .. ')'))
-    say('The file path is on your clipboard. After editing and saving, use //mn reload.')
+    if not note then
+        return
+    end
+    if note.demo then
+        say('The demo note is built into the addon and is not in any file.')
+        return
+    end
+    windower.copy_to_clipboard(native_path(note.source))
+    say(("'%s' is at %s. File path copied."):format(note.key, locate(note)))
+    if note.rule then
+        say(('It matches %s (mode: %s). Save your changes, then //nt reload.'):format(note.rule.desc, note.mode))
+    else
+        say(('It is a manual note: //nt show %s displays it. Save your changes, then //nt reload.'):format(note.key))
+    end
+end
+
+-- //nt append <text>: adds a line to the note on screen (or the target's note).
+function commands.append(args)
+    local line = util.trim(table.concat(args, ' '))
+    if line == '' then
+        complain('Type the text to add: //nt append <text>')
+        return
+    end
+    local note = current_note('Target a monster that has a note, or create one with //nt new.')
+    if not note then
+        return
+    end
+    if note.demo then
+        complain('The demo note cannot be changed. Create a real note with //nt new.')
+        return
+    end
+    if note.source ~= paths.notes then
+        complain(("'%s' is in %s. //nt append only changes %s; use //nt edit to find the note."):format(
+            note.key, note.source_name, NOTES_NAME))
+        return
+    end
+    local result, failure = generator.append(paths.notes, note.key, line, generator_options())
+    if not result then
+        explain_failure(failure)
+        return
+    end
+    reload(false)
+    say(("Added a line to '%s' (%s line %s)."):format(note.key, NOTES_NAME, tostring(result.line or '?')))
 end
 
 function commands.show(args)
@@ -484,7 +588,7 @@ function commands.pin()
     local what, note = st:pin(note_for(target))
     refresh()
     if what == 'pinned' then
-        say(("Pinned '%s'. It stays until //mn pin again or //mn hide."):format(note.title))
+        say(("Pinned '%s'. It stays until //nt pin again or //nt hide."):format(note.title))
     elseif what == 'unpinned' then
         say(("Unpinned '%s'."):format(note.title))
     else
@@ -506,7 +610,7 @@ function commands.toggle(args)
     refresh()
     memory.auto = on
     save_memory()
-    say(on and 'Automatic notes are on.' or 'Automatic notes are off. //mn show still displays a note.')
+    say(on and 'Automatic notes are on.' or 'Automatic notes are off. //nt show still displays a note.')
 end
 
 -- Reads data/remembered.lua (positions and the auto toggle).
@@ -522,6 +626,114 @@ function commands.reload()
     load_memory() -- so deleting remembered.lua and reloading resets positions
     st:set_auto(memory.auto)
     reload(true)
+end
+
+-- //nt list [word]: note keys and what they match, sorted, at most LIST_LIMIT lines.
+function commands.list(args)
+    local term = util.trim(table.concat(args, ' ')):lower()
+    local found = {}
+    for _, note in ipairs(lib.list) do
+        local text = (note.key .. '\n' .. note.title .. '\n' .. (note.rule and note.rule.desc or '')):lower()
+        if term == '' or text:find(term, 1, true) then
+            found[#found + 1] = note
+        end
+    end
+    if #found == 0 then
+        if lib.broken then
+            complain(('No notes are loaded: %s has an error. Fix it, then //nt reload.'):format(NOTES_NAME))
+        elseif term == '' then
+            say('You have no notes yet. Target a monster and type //nt new.')
+        else
+            say(('No notes match "%s".'):format(term))
+        end
+        return
+    end
+    table.sort(found, function(a, b) return a.key < b.key end)
+    say(term == '' and (plural(#found, 'note') .. ':') or ('%s match "%s":'):format(plural(#found, 'note'), term))
+    for i = 1, math.min(#found, LIST_LIMIT) do
+        local note = found[i]
+        say(('  %s - %s'):format(note.key, note.rule and note.rule.desc or ('manual, //nt show ' .. note.key)))
+    end
+    if #found > LIST_LIMIT then
+        say(('  ...and %d more. Narrow the list: //nt list <word>'):format(#found - LIST_LIMIT))
+    end
+end
+
+function commands.status()
+    local auto = ('Automatic notes are %s.'):format(st.auto and 'on' or 'off')
+    if lib.broken then
+        complain(('%s No notes are loaded: %s has an error. Fix it, then //nt reload.'):format(auto, NOTES_NAME))
+    else
+        local loaded = ('%s loaded from %s.'):format(plural(#lib.list, 'note'), plural(#lib.files, 'file'))
+        if last_load.failed then
+            loaded = loaded .. ' The last //nt reload failed, so these are the notes from before it.'
+        elseif last_load.problems > 0 then
+            loaded = loaded .. (' The last reload reported %s; //nt reload lists them.'):format(plural(last_load.problems, 'problem'))
+        end
+        say(auto .. ' ' .. loaded)
+    end
+    local note, slot = st:visible()
+    if not note then
+        say('No note is showing.')
+        return
+    end
+    local extra = note.demo and ' (the demo)' or (" ('%s')"):format(note.key)
+    if slot.how == 'pin' then
+        extra = extra .. ', pinned'
+    end
+    if view and view.pages > 1 then
+        extra = extra .. (', page %d of %d'):format(view.page, view.pages)
+    end
+    say(('Showing %s%s.'):format(note.title ~= '' and note.title or note.key, extra))
+end
+
+function commands.demo()
+    st:show(demo_note())
+    refresh()
+    say('Showing a demo note. Drag it to set where notes appear; //nt hide closes it.')
+end
+
+-- //nt resetpos [all]: forgets dragged positions.
+function commands.resetpos(args)
+    if (args[1] or ''):lower() == 'all' then
+        local n = remembered.reset_all(memory)
+        save_memory()
+        refresh(true)
+        say(n > 0 and 'Every note is back at its position from the note files.' or 'No note had been moved.')
+        return
+    end
+    local note = st:visible()
+    if not note then
+        complain('No note is showing. Show one first, or reset every note with //nt resetpos all.')
+        return
+    end
+    remembered.reset(memory, note)
+    save_memory()
+    refresh(true)
+    if note.own_position then
+        say(("'%s' is back at its own position from the note file."):format(note.title))
+    else
+        say('Notes are back at the default position (defaults.position in data/notes.lua).')
+    end
+end
+
+local function turn(delta)
+    if not (view and shown.note) then
+        complain('No note is showing.')
+        return
+    end
+    local _, pages = view:turn(delta)
+    if pages <= 1 then
+        say('This note fits on one page.')
+    end
+end
+
+function commands.next()
+    turn(1)
+end
+
+function commands.prev()
+    turn(-1)
 end
 
 local ALIASES = { ['?'] = 'help', r = 'reload', unpin = 'pin' }
@@ -615,8 +827,13 @@ windower.register_event('incoming chunk', guard(function(id, data)
     end
 end))
 
--- A once-per-second check, only while a note depends on monsters being alive.
+-- Every frame: the display re-measures a note for a few frames after it
+-- changed (nothing to do otherwise). Then a once-per-second check, only
+-- while a note depends on monsters being alive.
 windower.register_event('prerender', guard(function()
+    if view then
+        view:settle()
+    end
     if not st:needs_tick() then
         return
     end
@@ -640,11 +857,11 @@ windower.register_event('addon command', function(command, ...)
     command = ALIASES[command] or command
     local handler = commands[command]
     if not handler then
-        complain(('Unknown command "%s". Type //mn help for the list.'):format(command))
+        complain(('Unknown command "%s". Type //nt help for the list.'):format(command))
         return
     end
     local ok, err = pcall(handler, { ... })
     if not ok then
-        complain(('//mn %s failed: %s'):format(command, tostring(err)))
+        complain(('//nt %s failed: %s'):format(command, tostring(err)))
     end
 end)

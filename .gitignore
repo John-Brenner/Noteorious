@@ -7,3 +7,7 @@ tests/tmp/
 
 # Python
 __pycache__/
+
+# Personal data: never committed or shipped, so updates cannot overwrite it
+data/notes.lua
+data/libraries/*.lua

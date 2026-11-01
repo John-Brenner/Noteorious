@@ -41,6 +41,32 @@ function util.copy(value)
     return out
 end
 
+-- Whether two plain data values are equal, comparing tables by content.
+-- Very deep (or self-referencing) tables count as different.
+function util.deep_equal(a, b, depth)
+    if a == b then
+        return true
+    end
+    if type(a) ~= 'table' or type(b) ~= 'table' then
+        return false
+    end
+    depth = (depth or 0) + 1
+    if depth > 50 then
+        return false
+    end
+    for k, v in pairs(a) do
+        if not util.deep_equal(v, b[k], depth) then
+            return false
+        end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then
+            return false
+        end
+    end
+    return true
+end
+
 -- Keys of a table in a stable order: numbers first, then strings, each sorted.
 function util.sorted_keys(t)
     local keys = {}

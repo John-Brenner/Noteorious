@@ -41,7 +41,7 @@ end
 local function setup(text)
     local dir = fakes.temp_dir('generator')
     local path = dir .. 'notes.lua'
-    fakes.write(path, text or fakes.read(ROOT .. 'data/notes.lua'))
+    fakes.write(path, text or fakes.read(ROOT .. 'tests/fixtures/notes.lua'))
     return dir, path
 end
 
@@ -82,7 +82,7 @@ T.test('add_note inserts above the end marker and keeps everything else', functi
 end)
 
 T.test('add_note keeps CRLF line endings', function()
-    local crlf = fakes.read(ROOT .. 'data/notes.lua'):gsub('\r?\n', '\r\n')
+    local crlf = fakes.read(ROOT .. 'tests/fixtures/notes.lua'):gsub('\r?\n', '\r\n')
     local dir, path = setup(crlf)
     T.ok(generator.add_note(path, 'crab', entry('crab', 154, 'Crab'), options(dir)))
     local after = fakes.read(path)
@@ -98,6 +98,85 @@ T.test('add_note refuses to touch a file with errors', function()
     T.eq(failure.reason, 'invalid')
     T.eq(fakes.read(path), broken)
     T.no(fakes.dir_exists(dir .. 'backups/'), 'no backup either')
+end)
+
+T.test('append adds a line under the text and changes nothing else', function()
+    local dir, path = setup()
+    local before = fakes.read(path)
+    local result, failure = generator.append(path, 'dragons_aery_wyrms', '  Spread out for Horrid Roar. ', options(dir))
+    T.ok(result, failure and failure.reason)
+    local after = fakes.read(path)
+    T.eq((after:gsub('\n                Spread out for Horrid Roar%.', '', 1)), before, 'only the new line was added')
+    T.eq(util.lines(after)[result.line], '        dragons_aery_wyrms = {', 'reported line')
+    local lib, report = load(path)
+    T.eq(#report.errors + #report.warnings, 0)
+    T.eq(lib.notes.dragons_aery_wyrms.text, '- Stay at its sides: Spike Flail hits everyone behind it.\n'
+        .. '- Absolute Terror: have a way to remove terror ready.\nSpread out for Horrid Roar.')
+    T.eq(fakes.read(result.backup), before, 'backup holds the old file')
+end)
+
+T.test('append replaces the //nt new placeholder', function()
+    local dir, path = setup()
+    T.ok(generator.add_note(path, 'crab', entry('crab', 154, 'Crab'), options(dir)))
+    T.ok(generator.append(path, 'crab', 'Pinch.', options(dir)))
+    T.has(fakes.read(path), '            text = [[\n                Pinch.\n            ]],')
+    T.eq(load(path).notes.crab.text, 'Pinch.')
+end)
+
+T.test('append handles CRLF, other bracket levels, one-line and indented text', function()
+    local text = 'return {\r\n    notes = {\r\n'
+        .. '        a = { match = { zone = 154, name = "A" }, text = [==[First ]] still text]==] },\r\n'
+        .. '        b = { match = { zone = 154, name = "B" }, text = [[\r\n            One\r\n              Two\r\n        ]] },\r\n'
+        .. '    },\r\n}\r\n'
+    local dir, path = setup(text)
+    T.ok(generator.append(path, 'a', 'Second ]] too', options(dir)))
+    T.ok(generator.append(path, 'b', 'Three', options(dir)))
+    local after = fakes.read(path)
+    T.no(after:find('[^\r]\n'), 'no bare LF line endings')
+    local lib = load(path)
+    T.eq(lib.notes.a.text, 'First ]] still text\nSecond ]] too')
+    T.eq(lib.notes.b.text, 'One\n  Two\nThree', 'relative indentation kept')
+end)
+
+T.test('append refuses changes it cannot make safely and leaves the file alone', function()
+    local text = 'return {\n    notes = {\n'
+        .. '        joined = { match = { zone = 154, name = "J" }, text = [[A]] .. "!" },\n'
+        .. '        untitled = { match = { zone = 154, name = "U" } },\n'
+        .. '        written = { match = { zone = 154, name = "W" }, text = [[\n            W\n        ]] },\n'
+        .. '        quoted = { match = { zone = 154, name = "Q" }, text = "Quoted." },\n'
+        .. '    },\n}\n'
+    local dir, path = setup(text)
+    local cases = {
+        { 'nobody', 'x', 'missing' },
+        { 'quoted', 'x', 'no_text' },         -- no [[ ]] text after it
+        { 'joined', 'x', 'verify' },          -- would turn "A!" into "A\nx!"
+        { 'untitled', 'x', 'verify' },        -- the next text = [[ belongs to another note
+        { 'written', 'a ]] b', 'closing' },
+    }
+    for _, case in ipairs(cases) do
+        local result, failure = generator.append(path, case[1], case[2], options(dir))
+        T.eq(result, nil, case[1])
+        T.eq(failure.reason, case[3], case[1])
+    end
+    T.eq(fakes.read(path), text, 'never changed')
+    T.no(fakes.dir_exists(dir .. 'backups/'), 'no backup either')
+
+    -- The note's own text would come out right, but code later in the file
+    -- reuses it for another note, which would change too.
+    local shared = 'local lib = { notes = {\n'
+        .. '    a = { match = { zone = 154, name = "A" }, text = [[\n        Shared\n    ]] },\n'
+        .. '    b = { match = { zone = 154, name = "B" } },\n'
+        .. '} }\nlib.notes.b.text = lib.notes.a.text\nreturn lib\n'
+    local dir3, path3 = setup(shared)
+    local _, shared_failure = generator.append(path3, 'a', 'x', options(dir3))
+    T.eq(shared_failure and shared_failure.reason, 'verify', 'another note would have changed')
+    T.eq(fakes.read(path3), shared)
+
+    local broken = 'return { notes = { a = { text = [[x]] }\n'
+    local dir2, path2 = setup(broken)
+    local _, failure = generator.append(path2, 'a', 'x', options(dir2))
+    T.eq(failure.reason, 'invalid')
+    T.eq(fakes.read(path2), broken)
 end)
 
 T.test('add_note without a marker changes nothing', function()
@@ -126,7 +205,7 @@ end)
 
 T.test('marker text elsewhere in the file does not misplace the entry', function()
     local text = table.concat({
-        '--[[ Tip: //mn new writes above this line:',
+        '--[[ Tip: //nt new writes above this line:',
         '-- [noteorious:generated:end]',
         ']]',
         'return {',

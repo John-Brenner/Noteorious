@@ -30,7 +30,7 @@ function identity.parse(text, lookup)
     if not zone then
         local ids = lookup and lookup(zone_part)
         if not ids or #ids == 0 then
-            return nil, ('Unknown zone "%s". Use the zone number shown by //mn id.'):format(zone_part)
+            return nil, ('Unknown zone "%s". Use the zone number shown by //nt id.'):format(zone_part)
         end
         if #ids > 1 then
             return nil, ('"%s" matches several zones (%s); use the zone number instead.'):format(zone_part, table.concat(ids, ', '))

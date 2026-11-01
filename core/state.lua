@@ -14,8 +14,8 @@
 
     Three slots, highest priority first; the first one that is set is shown:
 
-      held       stays until dismissed. Filled by //mn pin (how = 'pin'),
-                 //mn show (how = 'show') or a note whose mode is "pinned"
+      held       stays until dismissed. Filled by //nt pin (how = 'pin'),
+                 //nt show (how = 'show') or a note whose mode is "pinned"
                  (how = 'pinned'). An automatic note never replaces it.
       focus      a "target" mode note. Follows the current target exactly.
       encounter  a "combat" mode note plus the set of monsters that belong to
@@ -27,15 +27,15 @@
 
     Close conditions:
       close_on_death   focus closes when its monster dies; an encounter closes
-                       when its last monster dies; a pinned-mode or //mn show
+                       when its last monster dies; a pinned-mode or //nt show
                        note closes when the monsters it was opened for die.
                        With close_on_death = false the note stays until the
                        next target change instead.
-      close_on_zone    held notes ("pinned" mode, //mn show) close on zoning.
+      close_on_zone    held notes ("pinned" mode, //nt show) close on zoning.
                        Target and combat notes always end on zoning because
                        their monsters no longer exist.
-      close_on_logout  any note, including //mn pin, closes on logout.
-    A note pinned with //mn pin ignores close_on_zone and close_on_death.
+      close_on_logout  any note, including //nt pin, closes on logout.
+    A note pinned with //nt pin ignores close_on_zone and close_on_death.
 ]]
 
 local state = {}
@@ -53,7 +53,7 @@ function state.new(deps)
     deps.clock = deps.clock or os.time
     return setmetatable({
         deps = deps,
-        auto = true,     -- automatic display (//mn toggle)
+        auto = true,     -- automatic display (//nt toggle)
         target = nil,    -- current target record
         held = nil,      -- { note, how, mobs = { [id] = true } }
         focus = nil,     -- { note, mob_id }
@@ -245,14 +245,14 @@ function State:logged_out()
     end
 end
 
--- //mn hide: dismisses everything. Returns the note that was visible.
+-- //nt hide: dismisses everything. Returns the note that was visible.
 function State:hide()
     local note = self:visible()
     self.held, self.focus, self.encounter = nil, nil, nil
     return note
 end
 
--- //mn pin: pins the visible note (or `fallback` when nothing is visible),
+-- //nt pin: pins the visible note (or `fallback` when nothing is visible),
 -- or unpins a pinned one. Returns 'pinned' | 'unpinned' | nil, note.
 function State:pin(fallback)
     local h = self.held
@@ -268,13 +268,13 @@ function State:pin(fallback)
     return 'pinned', note
 end
 
--- //mn show: displays a note explicitly. `mob` (optional) is the monster it
+-- //nt show: displays a note explicitly. `mob` (optional) is the monster it
 -- was opened for; close_on_death then applies to it.
 function State:show(note, mob)
     self.held = { note = note, how = 'show', mobs = mob and { [mob.id] = true } or {} }
 end
 
--- //mn toggle: automatic display on or off. Explicit notes stay.
+-- //nt toggle: automatic display on or off. Explicit notes stay.
 function State:set_auto(on)
     self.auto = on and true or false
     if self.auto then
@@ -289,7 +289,7 @@ function State:set_auto(on)
     end
 end
 
--- After //mn reload: swaps in the reloaded notes by key, drops notes that no
+-- After //nt reload: swaps in the reloaded notes by key, drops notes that no
 -- longer exist (or changed mode), and re-evaluates the current target.
 function State:reload(lookup)
     local h = self.held

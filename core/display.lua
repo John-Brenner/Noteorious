@@ -7,17 +7,28 @@
     Layout:   [icon]  +-----------------------------+
                       | Title            (accent)   |
                       | body text, word-wrapped     |
+                      | page 1/2 - //nt next, ...   |  (long notes only)
                       +-----------------------------+
 
     * The text object is created from the template '${body}' and the note is
       passed in as the value of `body`. texts.lua does not parse variable
       values, so "${...}" inside your note text is shown literally.
     * Inline colors in note text (\cs(r,g,b)...\cr) are drawn by Windower.
+    * Notes longer than max_lines are split into pages (//nt next, //nt prev).
     * The box is draggable (texts.lua handles the drag). The icon follows via
       the text object's 'drag' event; the position is saved on mouse release.
     * Missing icon images fall back to a text icon in the title.
     * Fonts are passed with fallbacks (your font, then Consolas, then Arial),
       so an uninstalled font does not leave the note blank.
+
+    Staying on screen: the box size comes from texts:extents() (Windower's
+    windower.text.get_extents). Windower does not document whether that
+    size includes the background padding, or how soon it reflects new text,
+    so the padding is counted outside the measured size (at worst a few
+    pixels too careful), and the box is measured again for a few frames
+    after every change (settle(), called from prerender). The whole note
+    and its icon are kept on screen when they fit; a note larger than the
+    screen keeps its top-left corner, with the title, on screen.
 
     deps = {
         texts, images,            -- the Windower libraries (or test fakes)
@@ -30,8 +41,8 @@
     }
 ]]
 
-local util = require('core/util')
 local settings = require('core/settings')
+local util = require('core/util')
 
 local unpack = unpack or table.unpack
 
@@ -41,9 +52,16 @@ local Display = {}
 Display.__index = Display
 
 local ICON_GAP = 4
+local FOOTER_COLOR = '\\cs(160,160,160)'
 
--- The string shown in the box: a colored header line and the wrapped body.
--- opts.glyph: text icon to put before the title; opts.pinned: add a marker.
+-- Frames to keep re-measuring the box after its text or style changed.
+display.SETTLE_FRAMES = 10
+
+-- The string shown in the box: a colored header line, the wrapped body and,
+-- for a note longer than max_lines, one page of it plus a page footer.
+-- opts.glyph: text icon before the title; opts.pinned: add a marker;
+-- opts.page: which page to show (default 1).
+-- Returns the text and the number of pages.
 function display.compose(note, opts)
     opts = opts or {}
     local header = {}
@@ -67,22 +85,28 @@ function display.compose(note, opts)
     if note.text and note.text ~= '' then
         body = util.wrap(note.text, note.width)
     end
+    local per_page, pages = #body, 1
     local max = note.max_lines
     if max > 0 and #body > max then
-        local hidden = #body - max + 1
-        for i = #body, max, -1 do
-            body[i] = nil
-        end
-        body[max] = ('... (%d more line%s in the note file)'):format(hidden, hidden == 1 and '' or 's')
+        per_page = math.max(1, max - 1) -- the last line is the page footer
+        pages = math.ceil(#body / per_page)
     end
-    for _, line in ipairs(body) do
-        out[#out + 1] = line
+    local page = math.min(math.max(opts.page or 1, 1), pages)
+    local first = (page - 1) * per_page + 1
+    for i = first, math.min(#body, first + per_page - 1) do
+        out[#out + 1] = body[i]
     end
-    return table.concat(out, '\n')
+    if pages > 1 then
+        out[#out + 1] = ('%spage %d/%d - //nt next, //nt prev\\cr'):format(FOOTER_COLOR, page, pages)
+    end
+    return table.concat(out, '\n'), pages
 end
 
 function display.new(deps)
-    local self = setmetatable({ deps = deps, missing = {}, note = nil, dragging = false, icon_size = 0 }, Display)
+    local self = setmetatable({
+        deps = deps, missing = {}, note = nil, dragging = false, icon_size = 0,
+        page = 1, pages = 1, settle_left = 0, width = 0, height = 0,
+    }, Display)
 
     self.text = deps.texts.new('${body}', {
         pos = { x = 0, y = 0 },
@@ -96,9 +120,17 @@ function display.new(deps)
         },
     })
     self.text:hide()
+    -- texts.lua has already moved the box to (x, y); pull it back on screen.
     self.text:register_event('drag', function(_, x, y)
+        if not self.note then
+            return
+        end
         self.dragging = true
-        self:place_icon(x, y)
+        local cx, cy = self:clamp(x, y)
+        if cx ~= x or cy ~= y then
+            self.text:pos(cx, cy)
+        end
+        self:place_icon(cx, cy)
     end)
 
     self.icon = deps.images.new({
@@ -138,16 +170,32 @@ function Display:icon_path(icon)
     return nil
 end
 
--- Keeps the box (and its icon) on screen.
+-- Reads the drawn size of the box. Keeps the last size while Windower
+-- reports none (text not drawn yet). Returns true when the size changed.
+function Display:measure()
+    local w, h = self.text:extents()
+    if type(w) == 'number' and type(h) == 'number' and w > 0 and h > 0 then
+        local changed = w ~= self.width or h ~= self.height
+        self.width, self.height = w, h
+        return changed
+    end
+    return false
+end
+
+-- The closest position to (x, y) that keeps the box, its padding and its
+-- icon on screen. When the note is larger than the screen, its top-left
+-- corner (with the title) stays visible.
 function Display:clamp(x, y)
     local pad = self.note.padding
-    local min_x = pad + (self.icon_size > 0 and (self.icon_size + ICON_GAP) or 0)
-    local w, h = self.deps.screen()
-    if w and h then
-        x = math.min(x, w - 60)
-        y = math.min(y, h - 30)
+    local icon = self.icon_size > 0 and (self.icon_size + ICON_GAP) or 0
+    local right = self.width + pad
+    local bottom = math.max(self.height + pad, self.icon_size - pad)
+    local sw, sh = self.deps.screen()
+    if sw and sh then
+        x = math.min(x, sw - right)
+        y = math.min(y, sh - bottom)
     end
-    return math.max(min_x, x), math.max(pad, y)
+    return math.max(x, pad + icon), math.max(y, pad)
 end
 
 function Display:place_icon(x, y)
@@ -155,6 +203,14 @@ function Display:place_icon(x, y)
         local pad = self.note.padding
         self.icon:pos(x - pad - ICON_GAP - self.icon_size, y - pad)
     end
+end
+
+-- Puts the box as close to (x, y) as fits on screen.
+function Display:place(x, y)
+    self.anchor_x, self.anchor_y = x, y
+    local cx, cy = self:clamp(x, y)
+    self.text:pos(cx, cy)
+    self:place_icon(cx, cy)
 end
 
 function Display:apply_style(note)
@@ -180,31 +236,72 @@ function Display:apply_style(note)
     t:stroke_color(oc[1], oc[2], oc[3])
 end
 
+-- Puts the current page of the note into the box and starts re-measuring.
+function Display:render()
+    local body, pages = display.compose(self.note, { pinned = self.pinned, glyph = self.glyph, page = self.page })
+    self.pages = pages
+    self.page = math.min(self.page, pages)
+    self.text:update({ body = body })
+    self:measure()
+    self.settle_left = display.SETTLE_FRAMES
+end
+
 -- Shows `note`. opts.pinned adds a "[pinned]" marker to the title.
+-- Showing the note that is already up keeps its page.
 function Display:show(note, opts)
     opts = opts or {}
+    if not (self.note and self.note.key == note.key) then
+        self.page = 1
+    end
     self.note = note
+    self.pinned = opts.pinned
     self:apply_style(note)
 
     local image = note.icon_style == 'image' and self:icon_path(note.icon) or nil
-    local glyph
+    self.glyph = nil
     if note.icon and note.icon_style ~= 'none' and not image then
-        glyph = settings.icons[note.icon] or '(*)'
+        self.glyph = settings.icons[note.icon] or '(*)'
     end
-    self.text:update({ body = display.compose(note, { pinned = opts.pinned, glyph = glyph }) })
-
     self.icon_size = image and note.icon_size or 0
-    local x, y = self:clamp(self.deps.position(note))
-    self.text:pos(x, y)
+    self:render()
+
     if image then
         self.icon:path(image)
         self.icon:size(note.icon_size, note.icon_size)
-        self:place_icon(x, y)
         self.icon:show()
     else
         self.icon:hide()
     end
+    self:place(self.deps.position(note))
     self.text:show()
+end
+
+-- Turns the page of a long note (wrapping around). Returns page, pages,
+-- or nil when no note is shown.
+function Display:turn(delta)
+    if not self.note then
+        return nil
+    end
+    if self.pages > 1 then
+        self.page = (self.page - 1 + delta) % self.pages + 1
+        self:render()
+        self:place(self.anchor_x, self.anchor_y)
+    end
+    return self.page, self.pages
+end
+
+-- Called every frame. For a few frames after a change, moves the box back
+-- on screen if its drawn size turns out different from what was measured.
+function Display:settle()
+    if self.settle_left <= 0 or not self.note or self.dragging then
+        return
+    end
+    self.settle_left = self.settle_left - 1
+    if self:measure() then
+        local x, y = self:clamp(self.anchor_x, self.anchor_y)
+        self.text:pos(x, y)
+        self:place_icon(x, y)
+    end
 end
 
 function Display:hide()
@@ -212,6 +309,7 @@ function Display:hide()
     self.icon:hide()
     self.note = nil
     self.dragging = false
+    self.page, self.pages, self.settle_left = 1, 1, 0
 end
 
 -- Forward of the 'mouse' event. Saves the position when a drag ends.
@@ -221,7 +319,9 @@ function Display:mouse(kind)
         self.dragging = false
         if self.note then
             local x, y = self.text:pos()
+            self.anchor_x, self.anchor_y = x, y
             self.deps.moved(self.note, x, y)
+            self.settle_left = display.SETTLE_FRAMES
         end
     end
 end

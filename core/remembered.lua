@@ -3,9 +3,9 @@
 
     Things the addon remembers for you, kept in data/remembered.lua and never
     in your note library (so notes.lua stays shareable and is only changed by
-    you or by //mn new):
+    you or by //nt new):
 
-      auto       automatic display on/off (//mn toggle)
+      auto       automatic display on/off (//nt toggle)
       positions  where you dragged notes
 
     Positions: notes without their own `position` share one remembered spot
@@ -85,6 +85,22 @@ function remembered.set_position(data, note, x, y)
         x = math.floor(x + 0.5), y = math.floor(y + 0.5),
         base_x = note.position.x, base_y = note.position.y,
     }
+end
+
+-- //nt resetpos: forgets the dragged spot `note` uses (shared by every note
+-- without its own position). Returns true if there was one.
+function remembered.reset(data, note)
+    local slot = slot_of(note)
+    local had = data.positions[slot] ~= nil
+    data.positions[slot] = nil
+    return had
+end
+
+-- //nt resetpos all: forgets every dragged spot. Returns how many there were.
+function remembered.reset_all(data)
+    local n = util.count(data.positions)
+    data.positions = {}
+    return n
 end
 
 return remembered

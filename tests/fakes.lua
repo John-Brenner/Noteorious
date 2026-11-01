@@ -145,6 +145,21 @@ function fakes.zones()
     }
 end
 
+--[[ Text size, as the fakes "draw" it ]]
+
+-- Pixel size of drawn text: a fixed-width approximation (inline color codes
+-- take no space). Only used to give the fakes realistic, content-dependent
+-- extents; the real numbers come from Windower in game.
+function fakes.text_size(text, font_size)
+    local plain = text:gsub('\\cs%b()', ''):gsub('\\cr', '')
+    local width, lines = 0, 0
+    for line in (plain .. '\n'):gmatch('(.-)\n') do
+        lines = lines + 1
+        width = math.max(width, #line)
+    end
+    return width * math.ceil(font_size * 0.6), lines * math.ceil(font_size * 1.4)
+end
+
 --[[ Fake texts library (used when Windower's texts.lua is not available) ]]
 
 local STYLE_METHODS = {
@@ -152,6 +167,8 @@ local STYLE_METHODS = {
     'bg_visible', 'pad', 'stroke_width', 'stroke_color', 'stroke_alpha',
 }
 
+-- Like Windower, extents() reports the size from the last time the text
+-- was drawn (0, 0 before the first frame); texts.render_all() draws a frame.
 function fakes.texts_lib()
     local texts = { created = {} }
     local Text = {}
@@ -160,10 +177,20 @@ function fakes.texts_lib()
     function texts.new(str, settings)
         local t = setmetatable({
             template = str, settings = settings, values = {}, shown = false,
-            x = 0, y = 0, events = {}, style = {},
+            x = 0, y = 0, events = {}, style = {}, drawn_w = 0, drawn_h = 0,
         }, Text)
         texts.created[#texts.created + 1] = t
         return t
+    end
+
+    function texts.render_all()
+        for _, t in ipairs(texts.created) do
+            t.drawn_w, t.drawn_h = fakes.text_size(t:content(), t.style.size and t.style.size[1] or 12)
+        end
+    end
+
+    function Text:extents()
+        return self.drawn_w, self.drawn_h
     end
 
     function Text:update(attr)
@@ -225,9 +252,15 @@ function fakes.text_backend(w)
         end
     end
     w.text_items = items
+    -- Draws a frame: get_extents reports sizes as of the last frame.
+    function w.render()
+        for _, item in pairs(items) do
+            item.drawn_w, item.drawn_h = fakes.text_size(item.text, item.size)
+        end
+    end
     w.text = {
         create = function(name)
-            items[name] = { name = name, text = '', visible = false, x = 0, y = 0, size = 12 }
+            items[name] = { name = name, text = '', visible = false, x = 0, y = 0, size = 12, drawn_w = 0, drawn_h = 0 }
         end,
         delete = function(name)
             items[name] = nil
@@ -238,15 +271,7 @@ function fakes.text_backend(w)
         set_visibility = function(name, v) items[name].visible = v end,
         set_font_size = function(name, s) items[name].size = s end,
         get_extents = function(name)
-            local item = items[name]
-            local plain = item.text:gsub('\\cs%b()', '')
-            plain = plain:gsub('\\cr', '')
-            local width, lines = 0, 0
-            for line in (plain .. '\n'):gmatch('(.-)\n') do
-                lines = lines + 1
-                width = math.max(width, #line)
-            end
-            return width * math.ceil(item.size * 0.6), lines * math.ceil(item.size * 1.4)
+            return items[name].drawn_w, items[name].drawn_h
         end,
         set_font = set('fonts'),
         set_bg_border_size = set('padding'),
@@ -416,14 +441,25 @@ function fakes.windower(opts)
         w.fire('incoming chunk', 0x029, fakes.action_message(w.player.id, target_id, message or 6))
     end
 
+    -- One frame: the prerender event, then drawing (which updates the text
+    -- sizes reported by extents, as in Windower). w.draw is set by boot().
     function w.tick()
         w.fire('prerender')
+        if w.draw then
+            w.draw()
+        end
+    end
+
+    function w.frames(n)
+        for _ = 1, n do
+            w.tick()
+        end
     end
 
     -- Moves the clock forward, then runs the once-per-second check.
     function w.advance(seconds)
         fakes.now = fakes.now + seconds
-        w.fire('prerender')
+        w.tick()
     end
 
     -- What Windower fires around logging out and back in.
@@ -532,7 +568,7 @@ local LIB_MODULES = { 'texts', 'images', 'resources' }
 -- Loads Noteorious.lua in a fresh fake Windower. opts:
 --   name        label for the temp folder
 --   dir         reuse an existing addon folder (to test a restart)
---   notes       text for data/notes.lua (default: a copy of the shipped one)
+--   notes       text for data/notes.lua (default: tests/fixtures/notes.lua)
 --   no_notes    start without data/notes.lua
 --   no_icons    start without the icons folder
 --   zone, logged_in, mobs (list of mob tables to add before load)
@@ -547,7 +583,7 @@ function fakes.boot(opts)
         if opts.notes then
             fakes.write(dir .. 'data/notes.lua', opts.notes)
         elseif not opts.no_notes then
-            fakes.copy(ROOT .. 'data/notes.lua', dir .. 'data/notes.lua')
+            fakes.copy(ROOT .. 'tests/fixtures/notes.lua', dir .. 'data/notes.lua')
         end
         if not opts.no_icons then
             fakes.mkdir(dir .. 'icons')
@@ -573,10 +609,12 @@ function fakes.boot(opts)
         fakes.text_backend(w)
         package.preload.texts = function() return dofile(WINDOWER_LIBS .. 'texts.lua') end
         w.real_texts = true
+        w.draw = w.render
     else
         local texts = fakes.texts_lib()
         w.texts = texts
         package.preload.texts = function() return texts end
+        w.draw = texts.render_all
     end
 
     for _, m in ipairs(opts.mobs or {}) do
@@ -586,16 +624,18 @@ function fakes.boot(opts)
     w.fire('load')
     w.dir = dir
 
-    -- The note box as drawn: { visible, content, x, y }, plus the icon.
+    -- The note box as drawn: { visible, content, x, y, w, h }, plus the icon.
+    -- w and h are the size from the last drawn frame.
     function w.view()
         local box
         if w.real_texts then
             for _, item in pairs(w.text_items) do
-                box = { visible = item.visible, content = item.text, x = item.x, y = item.y, item = item }
+                box = { visible = item.visible, content = item.text, x = item.x, y = item.y, item = item,
+                    w = item.drawn_w, h = item.drawn_h }
             end
         else
             local t = w.texts.created[1]
-            box = { visible = t.shown, content = t:content(), x = t.x, y = t.y, item = t }
+            box = { visible = t.shown, content = t:content(), x = t.x, y = t.y, item = t, w = t.drawn_w, h = t.drawn_h }
         end
         local icon = images.created[1]
         box.icon = { visible = icon.shown, file = icon.file, x = icon.x, y = icon.y, w = icon.w }
@@ -603,7 +643,9 @@ function fakes.boot(opts)
     end
 
     -- Drags the note box with the mouse from its current spot to (x, y).
+    -- The box has been drawn by then (the player can see it).
     function w.drag_note(x, y)
+        w.draw()
         local box = w.view()
         if w.real_texts then
             w.mouse(1, box.x + 2, box.y + 2)

@@ -21,8 +21,28 @@ local function load_text(text)
     return load_texts({ text })
 end
 
-T.test('the shipped data/notes.lua loads without problems', function()
-    local lib, report = library.load({ { path = ROOT .. 'data/notes.lua', name = 'data/notes.lua' } }, { zones = zones })
+-- What a new install gets: the starter notes.lua, plus the shipped examples
+-- copied into data/libraries/ (as the examples file tells players to do).
+local function shipped()
+    local generator = require('core/generator')
+    local dir = fakes.temp_dir('shipped')
+    fakes.write(dir .. 'notes.lua', generator.STARTER)
+    return library.load({
+        { path = dir .. 'notes.lua', name = 'data/notes.lua' },
+        { path = ROOT .. 'examples/example-notes.lua', name = 'data/libraries/example-notes.lua' },
+    }, { zones = zones })
+end
+
+T.test('a new install starts with no notes, and loads cleanly', function()
+    local generator = require('core/generator')
+    local lib, report = load_text(generator.STARTER)
+    T.ok(lib, 'loaded')
+    T.eq(#report.errors + #report.warnings, 0, table.concat(report.warnings, ' | '))
+    T.eq(report.count, 0)
+end)
+
+T.test('the shipped examples load as an extra library without problems', function()
+    local lib, report = shipped()
     T.ok(lib, 'loaded')
     T.eq(#report.errors, 0, 'errors: ' .. table.concat(report.errors, ' | '))
     T.eq(#report.warnings, 0, 'warnings: ' .. table.concat(report.warnings, ' | '))
@@ -33,7 +53,7 @@ T.test('the shipped data/notes.lua loads without problems', function()
 end)
 
 T.test('the spec example matches as described', function()
-    local lib = library.load({ { path = ROOT .. 'data/notes.lua', name = 'data/notes.lua' } }, { zones = zones })
+    local lib = shipped()
     local m = lib.matcher
     T.eq(m:find(133, 'Demisang Hoodoo').key, 'sortie_fomors', 'ordinary fomor in Sortie')
     T.eq(m:find(275, 'Demisang Hoodoo').key, 'sortie_fomors', 'another Sortie layer')
@@ -46,7 +66,7 @@ T.test('the spec example matches as described', function()
 end)
 
 T.test('notes inherit defaults and override them', function()
-    local lib = library.load({ { path = ROOT .. 'data/notes.lua', name = 'data/notes.lua' } }, { zones = zones })
+    local lib = shipped()
     local fomors = lib.notes.sortie_fomors
     T.eq(fomors.mode, 'combat')
     T.eq(fomors.color[1], 255, 'orange')

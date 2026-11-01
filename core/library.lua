@@ -173,7 +173,7 @@ function library.resolve_zone(z, groups, zones)
     if ids and #ids > 0 then
         return ids
     end
-    return nil, ('unknown zone "%s" (check the spelling, or use the zone id shown by //mn id)'):format(s)
+    return nil, ('unknown zone "%s" (check the spelling, or use the zone id shown by //nt id)'):format(s)
 end
 
 local function zone_label(zones, id)

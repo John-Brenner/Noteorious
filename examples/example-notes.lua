@@ -1,55 +1,29 @@
 --[==[
-    Noteorious note library
-    =======================
-    This file is yours. Edit it in any text editor, save, then type
-    //mn reload in game. To share notes, send this file to a friend.
+    Noteorious example notes
+    ========================
+    These examples show the different ways to match monsters. They are not
+    loaded unless you choose to:
 
-    Layout
-      defaults     settings every note inherits; any note can override any of them
-      zone_groups  names for lists of zones, usable anywhere a zone is expected
-      notes        one entry per note:  key = { match = { ... }, title = "...", text = [[ ... ]] }
+      * Try them all: copy this file into data/libraries/ and type
+        //nt reload in game. Remove it from there to stop using them.
+      * Keep a few: copy the entries you like into the notes = { ... }
+        section of your data/notes.lua, then //nt reload.
 
     Matching (strongest first; README.md has the full rules)
       match.name         one exact monster name
       match.names        any name in a list
       match.name_prefix  names that start with this text (spaces count)
       match.zone / zones a zone name, zone id, zone group, a list of those, or "*" for any zone
-    Get a monster's exact zone and name in game with //mn id.
+    Get a monster's exact zone and name in game with //nt id.
 
     Modes
       target   visible while you target a matching monster
       combat   stays up for that fight, even while you target other monsters
-      pinned   stays up until you dismiss it with //mn hide
-      manual   only shown with //mn show <key>
-
-    Text
-      Write it between [[ and ]]. Indentation shared by every line is removed,
-      so you can indent text to line up with the code. Inline colors work:
-      \cs(255,90,90)red words\cr
+      pinned   stays up until you dismiss it with //nt hide
+      manual   only shown with //nt show <key>
 ]==]
 
 return {
-    defaults = {
-        font = "Consolas",
-        font_size = 12,
-        color = "yellow",          -- title color: a name, "#RRGGBB" or { r, g, b }
-        text_color = "white",      -- body text color
-        background = "dark",
-        opacity = 220,             -- background opacity: 0 (none) to 255 (solid)
-        outline = 0,               -- text outline in pixels; try 1 or 2 with a low opacity
-        padding = 6,
-        width = 50,                -- wrap body lines at this many characters (0 = off)
-        max_lines = 30,            -- longer notes end with "... more lines"
-        position = { x = 800, y = 250 },
-        icon = "note",             -- warning | skull | info | note | reminder | star | false
-        icon_style = "image",      -- image | text | none
-        icon_size = 24,
-        mode = "target",           -- target | combat | pinned | manual
-        close_on_zone = true,
-        close_on_death = true,
-        close_on_logout = true,
-    },
-
     zone_groups = {
         -- Sortie runs in the [U1], [U2] and [U3] layers of Outer Ra'Kaznar.
         Sortie = { "Outer Ra'Kaznar [U1]", "Outer Ra'Kaznar [U2]", "Outer Ra'Kaznar [U3]" },
@@ -133,7 +107,7 @@ return {
             ]],
         },
 
-        -- A manual note has no match. Show it with  //mn show checklist
+        -- A manual note has no match. Show it with  //nt show checklist
         checklist = {
             mode = "manual",
             title = "Before you go",
@@ -146,9 +120,5 @@ return {
                 - Temporary items
             ]],
         },
-
-        -- [noteorious:generated:begin] Notes made by //mn new are added below. Keep both marker lines.
-
-        -- [noteorious:generated:end]
     },
 }
