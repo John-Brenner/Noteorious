@@ -1,0 +1,9 @@
+# Machine-written at runtime
+data/remembered.lua
+data/backups/
+
+# Test scratch space
+tests/tmp/
+
+# Python
+__pycache__/
