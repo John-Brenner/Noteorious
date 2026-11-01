@@ -226,6 +226,24 @@ T.test('dragging stays on screen, moves the icon and saves on release only', fun
     T.eq(#moves, 1, 'a plain click does not save')
 end)
 
+T.test('a dragged note stays where it was dropped when its page turns', function()
+    local lines = {}
+    for i = 1, 12 do
+        lines[i] = 'line ' .. i
+    end
+    local view, text, _, _, _, texts = make_view()
+    view:show(make_note({ text = table.concat(lines, '\n'), max_lines = 5 }))
+    frame(view, texts)
+    text:drag_to(300, 300)
+    view:mouse(2)
+    view:turn(1)
+    for _ = 1, display.SETTLE_FRAMES + 1 do
+        frame(view, texts)
+    end
+    T.eq(text.x, 300)
+    T.eq(text.y, 300)
+end)
+
 T.test('turning pages wraps around and keeps the page while the note stays up', function()
     local lines = {}
     for i = 1, 12 do

@@ -29,7 +29,7 @@ settings.builtin = {
     outline_color = 'black',
     padding = 6,             -- pixels between the text and the edge of the background
     width = 50,              -- wrap lines at this many characters (0 = never wrap)
-    max_lines = 30,          -- body lines shown before "... more lines" (0 = unlimited)
+    max_lines = 30,          -- lines per page; longer notes get pages (0 = unlimited)
     position = { x = 800, y = 250 },
     icon = 'note',
     icon_style = 'image',    -- image | text | none

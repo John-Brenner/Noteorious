@@ -425,8 +425,18 @@ function generator.append(path, key, new_line, opts)
                 end
             end
         end
-        local at = block.open_end + content:find('%S%s*$')
-        candidate = text:sub(1, at - 1) .. eol .. string.rep(' ', indent or 0) .. new_line .. text:sub(at)
+        local last = content:find('%S%s*$')
+        if not last then
+            return nil, { reason = 'no_text' } -- an empty block cannot hold this note's text
+        end
+        local at = block.open_end + last
+        -- A line ending in ']' right before ']]' would end the text early.
+        local closer = ']' .. block.eqs .. ']'
+        local after = ''
+        if at == block.close and (new_line .. closer):find(closer, 1, true) <= #new_line then
+            after = eol .. block.indent
+        end
+        candidate = text:sub(1, at - 1) .. eol .. string.rep(' ', indent or 0) .. new_line .. after .. text:sub(at)
     end
 
     local check, check_err = opts.evaluate(candidate, opts.display_name)

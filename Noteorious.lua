@@ -411,8 +411,8 @@ local function explain_failure(failure, entry_lines)
     end
 end
 
--- The note a command acts on when none is named: the one on screen, else
--- the target's note. Complains (with `hint`) and returns nil when there is none.
+-- The note //nt append acts on: the one on screen, else the target's note.
+-- Complains (with `hint`) and returns nil when there is none.
 local function current_note(hint)
     local note = st:visible()
     if note then
@@ -514,10 +514,14 @@ function commands.new(args)
     end
 end
 
+-- //nt edit [note]: without a name, the target's note, else the note on screen.
 function commands.edit(args)
     local note
-    if #args == 0 then
-        note = current_note('Target a monster, or name a note: //nt edit <note key>')
+    if #args == 0 and not game.target() then
+        note = st:visible()
+        if not note then
+            complain('No note is showing. Target a monster, or name a note: //nt edit <note key>')
+        end
     else
         note = resolve_note(args)
     end

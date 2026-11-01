@@ -127,15 +127,19 @@ T.test('append handles CRLF, other bracket levels, one-line and indented text', 
     local text = 'return {\r\n    notes = {\r\n'
         .. '        a = { match = { zone = 154, name = "A" }, text = [==[First ]] still text]==] },\r\n'
         .. '        b = { match = { zone = 154, name = "B" }, text = [[\r\n            One\r\n              Two\r\n        ]] },\r\n'
+        .. '        c = { match = { zone = 154, name = "C" }, text = [[Pinch.]] },\r\n'
         .. '    },\r\n}\r\n'
     local dir, path = setup(text)
     T.ok(generator.append(path, 'a', 'Second ]] too', options(dir)))
     T.ok(generator.append(path, 'b', 'Three', options(dir)))
+    local _, failure = generator.append(path, 'c', 'Use [Sleepga]', options(dir))
+    T.eq(failure, nil, 'a line ending in ] right before ]]')
     local after = fakes.read(path)
     T.no(after:find('[^\r]\n'), 'no bare LF line endings')
     local lib = load(path)
     T.eq(lib.notes.a.text, 'First ]] still text\nSecond ]] too')
     T.eq(lib.notes.b.text, 'One\n  Two\nThree', 'relative indentation kept')
+    T.eq(lib.notes.c.text, 'Pinch.\nUse [Sleepga]')
 end)
 
 T.test('append refuses changes it cannot make safely and leaves the file alone', function()
@@ -143,12 +147,15 @@ T.test('append refuses changes it cannot make safely and leaves the file alone',
         .. '        joined = { match = { zone = 154, name = "J" }, text = [[A]] .. "!" },\n'
         .. '        untitled = { match = { zone = 154, name = "U" } },\n'
         .. '        written = { match = { zone = 154, name = "W" }, text = [[\n            W\n        ]] },\n'
+        .. '        quoted2 = { match = { zone = 154, name = "Q2" }, text = "Quoted." },\n'
+        .. '        blank = { match = { zone = 154, name = "B" }, text = [[  ]] },\n'
         .. '        quoted = { match = { zone = 154, name = "Q" }, text = "Quoted." },\n'
         .. '    },\n}\n'
     local dir, path = setup(text)
     local cases = {
         { 'nobody', 'x', 'missing' },
         { 'quoted', 'x', 'no_text' },         -- no [[ ]] text after it
+        { 'quoted2', 'x', 'no_text' },        -- the next text = [[ ]] is another note's, and empty
         { 'joined', 'x', 'verify' },          -- would turn "A!" into "A\nx!"
         { 'untitled', 'x', 'verify' },        -- the next text = [[ belongs to another note
         { 'written', 'a ]] b', 'closing' },

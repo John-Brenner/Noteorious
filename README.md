@@ -28,7 +28,7 @@ From then on, the note pops up whenever you target that monster.
 |---|---|
 | `//nt new` | Add a note for your target to `data/notes.lua` |
 | `//nt append <text>` | Add a line to the note on screen |
-| `//nt edit` | Show the file and line of the note on screen (or your target's note), and copy the file path |
+| `//nt edit` | Show the file and line of your target's note (or the note on screen), and copy the file path |
 | `//nt list [word]` | List your notes, or the ones matching a word |
 | `//nt show <note>` / `//nt hide` | Show a note now / close the note on screen |
 | `//nt pin` | Keep the note on screen while you target other things. Again to release it |
@@ -61,7 +61,7 @@ fafnir = {
 - **Inline colors**: `\cs(255,90,90)red words\cr`.
 - **Look**: `defaults` at the top of the file sets the font, colors, size and position for every note. Any note can override any setting, like `color` above. See [Settings](#settings).
 - After saving the file, type `//nt reload`. If the file has a mistake, the chat log names the line, and your previous notes stay active until it is fixed.
-- `//nt new` adds entries between the two `-- [noteorious:generated:...]` marker lines. Keep those lines. The addon never changes anything else in the file.
+- `//nt new` adds entries between the two `-- [noteorious:generated:...]` marker lines. Keep those lines. Apart from them, the addon only changes the file when `//nt append` adds a line to a note's text.
 
 **Examples.** `examples/example-notes.lua` shows every way to match monsters: zone groups, name lists, name prefixes and manual notes. The examples are not loaded on their own. To try them, copy the file into `data/libraries/` and `//nt reload`. To keep some, copy those entries into your `data/notes.lua`.
 
@@ -150,7 +150,7 @@ zone_groups = {
 - `close_on_logout`: close any note on logout. Logging out and back in does not count as zoning.
 - `//nt pin` keeps a note over all automatic notes until you unpin it. Pinned notes ignore `close_on_zone` and `close_on_death`.
 - While a `pinned` or `//nt show` note is up, a `target` note does not replace it. A `target` note does show over a running `combat` note, and the combat note returns when you target away.
-- Without a note name, `//nt edit` and `//nt append` use the note on screen, or else your target's note.
+- Without a note name, `//nt edit` uses your target's note, or the note on screen when nothing is targeted. `//nt append` uses the note on screen, or else your target's note.
 
 ## Position and long notes
 
