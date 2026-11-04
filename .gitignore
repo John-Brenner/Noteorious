@@ -1,13 +1,6 @@
-# Machine-written at runtime
-data/remembered.lua
-data/backups/
-
-# Test scratch space
-tests/tmp/
+# Created at runtime: your notes, settings and backup. Never committed or
+# shipped, so updates cannot overwrite them.
+data/
 
 # Python
 __pycache__/
-
-# Personal data: never committed or shipped, so updates cannot overwrite it
-data/notes.lua
-data/libraries/*.lua

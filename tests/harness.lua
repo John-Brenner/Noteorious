@@ -9,13 +9,11 @@ local function repr(v)
         return string.format('%q', v)
     end
     if type(v) == 'table' then
-        local ok, util = pcall(require, 'core/util')
-        if ok then
-            local ok2, s = pcall(util.inline, v)
-            if ok2 then
-                return s
-            end
+        local parts = {}
+        for _, s in ipairs(v) do
+            parts[#parts + 1] = repr(s)
         end
+        return '{ ' .. table.concat(parts, ', ') .. ' }'
     end
     return tostring(v)
 end
