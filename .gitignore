@@ -1,6 +1,0 @@
-# Created at runtime: your notes, settings and backup. Never committed or
-# shipped, so updates cannot overwrite them.
-data/
-
-# Python
-__pycache__/

@@ -168,7 +168,8 @@ local function read_notes()
         return nil, 'data/notes.lua must end with  return { ... }'
     end
     if data.notes ~= nil or data.defaults ~= nil then
-        return nil, 'this is a notes file from Noteorious 1.x. See "Updating from 1.x" in README.md.'
+        return nil, 'it is from Noteorious 1.x, which 2.0 cannot read. Rename it, type //nt reload '
+            .. 'to start a new one, and copy your notes into it.'
     end
     for zone, mobs in pairs(data) do
         if type(zone) ~= 'string' or type(mobs) ~= 'table' then

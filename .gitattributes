@@ -1,8 +1,0 @@
-# Lua and text files use LF everywhere; Windower reads either.
-* text=auto eol=lf
-
-# Left out of release zips (git archive) and GitHub downloads.
-tests/ export-ignore
-docs/ export-ignore
-.gitignore export-ignore
-.gitattributes export-ignore
